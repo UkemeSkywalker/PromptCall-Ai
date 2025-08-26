@@ -121,6 +121,7 @@ export function createConversationEntry(
  */
 export function validateCallSession(session: any): session is CallSession {
   return (
+    session !== null &&
     typeof session === 'object' &&
     typeof session.sessionId === 'string' &&
     typeof session.callSid === 'string' &&
@@ -138,6 +139,7 @@ export function validateCallSession(session: any): session is CallSession {
  */
 export function validateConversationEntry(entry: any): entry is ConversationEntry {
   return (
+    entry !== null &&
     typeof entry === 'object' &&
     typeof entry.id === 'string' &&
     typeof entry.timestamp === 'number' &&

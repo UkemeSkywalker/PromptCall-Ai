@@ -36,7 +36,7 @@
 
 **At the end of this milestone, I should be able to:** Create, read, and update call sessions in DynamoDB with conversation history, and see session data persist correctly with automatic cleanup via TTL.
 
-- [ ] 2.1 Create session data models and interfaces
+- [x] 2.1 Create session data models and interfaces
 
   - Define TypeScript interfaces for CallSession and ConversationEntry
   - Create data validation functions for session data
@@ -46,7 +46,7 @@
   - **Test**: Unit tests for data model validation and session ID generation pass
   - _Requirements: 5.1_
 
-- [ ] 2.2 Implement DynamoDB session service
+- [x] 2.2 Implement DynamoDB session service
 
   - Create DynamoSessionManager class with CRUD operations
   - Implement session creation, retrieval, and update methods using AWS SDK v3
@@ -56,7 +56,7 @@
   - **Test**: Integration tests create/read/update sessions successfully with proper TTL
   - _Requirements: 5.1, 6.2_
 
-- [ ] 2.3 Add conversation context management
+- [x] 2.3 Add conversation context management
   - Implement conversation history tracking
   - Create context building for AI interactions
   - Add session state management (active, completed, failed)

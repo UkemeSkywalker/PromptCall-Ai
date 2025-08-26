@@ -9,7 +9,10 @@
     "test": "jest",
     "cdk": "npx cdk",
     "deploy": "cdk deploy",
-    "synth": "cdk synth"
+    "synth": "cdk synth",
+    "test-sessions": "npm run build && node scripts/test-session-management.js",
+    "demo": "npm run test-sessions",
+    "check-infra": "node scripts/check-infrastructure.js"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.119",
@@ -27,6 +30,7 @@
     "@aws-sdk/client-polly": "^3.400.0",
     "@aws-sdk/client-s3": "^3.400.0",
     "@aws-sdk/client-transcribe": "^3.400.0",
+    "@aws-sdk/util-dynamodb": "^3.873.0",
     "@types/uuid": "^10.0.0",
     "aws-cdk-lib": "^2.95.1",
     "aws-lambda": "^1.0.7",
