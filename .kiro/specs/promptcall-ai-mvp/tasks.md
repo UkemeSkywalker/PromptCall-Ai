@@ -68,7 +68,7 @@
 
 **At the end of this milestone, I should be able to:** Call a phone number, hear a welcome message, and see that a session was created in DynamoDB with the call details.
 
-- [ ] 3.1 Create Twilio webhook endpoints and request parsing
+- [x] 3.1 Create Twilio webhook endpoints and request parsing
 
   - Set up API Gateway routes for /webhook/voice, /webhook/speech, /webhook/events
   - Implement Lambda handlers for incoming Twilio voice webhooks
@@ -78,7 +78,7 @@
   - **Test**: POST requests to webhook endpoints return valid TwiML responses with proper XML structure
   - _Requirements: 1.1_
 
-- [ ] 3.2 Implement TwiML response generation
+- [x] 3.2 Implement TwiML response generation
 
   - Create TwiML XML response builders for Twilio call control
   - Add welcome message generation using Twilio `<Say>` verb
@@ -87,7 +87,7 @@
   - **Test**: TwiML responses validate against Twilio TwiML schemas
   - _Requirements: 1.2_
 
-- [ ] 3.3 Add call session management
+- [x] 3.3 Add call session management
 
   - Create new sessions when calls start
   - Handle call events (start, end, error)
@@ -96,7 +96,7 @@
   - **Test**: Call test number, verify session created in DynamoDB with correct call data
   - _Requirements: 1.3_
 
-- [ ] 3.4 Implement welcome message playback
+- [x] 3.4 Implement welcome message playback
   - Add audio file generation for welcome message
   - Implement message playback through telephony provider
   - Add prompt for user to speak their question
@@ -108,7 +108,7 @@
 
 **At the end of this milestone, I should be able to:** Call the system, speak a sentence, and see the transcribed text appear in the session logs with confidence scores.
 
-- [ ] 4.1 Implement audio recording and S3 storage
+- [x] 4.1 Implement audio recording and S3 storage
 
   - Set up Twilio recording webhook handler to receive audio URLs
   - Create S3Service class for uploading audio files with proper naming
@@ -118,7 +118,7 @@
   - **Test**: Make test call with speech, verify audio file appears in S3 bucket with correct metadata
   - _Requirements: 2.1_
 
-- [ ] 4.2 Create Amazon Transcribe integration
+- [x] 4.2 Create Amazon Transcribe integration
 
   - Implement Transcribe job creation from S3 audio files
   - Add job status polling and result retrieval
@@ -127,7 +127,7 @@
   - **Test**: Upload test audio file, verify Transcribe job completes with text output
   - _Requirements: 2.1, 2.2_
 
-- [ ] 4.3 Add transcription processing and validation
+- [x] 4.3 Add transcription processing and validation
 
   - Implement confidence score evaluation
   - Add transcription result parsing and formatting
@@ -136,7 +136,7 @@
   - **Test**: Process various audio qualities, verify confidence scoring works correctly
   - _Requirements: 2.2, 2.3_
 
-- [ ] 4.4 Integrate speech-to-text with call flow
+- [x] 4.4 Integrate speech-to-text with call flow
   - Connect audio recording to transcription pipeline
   - Add transcribed text to session conversation history
   - Implement error handling for transcription failures
@@ -148,7 +148,7 @@
 
 **At the end of this milestone, I should be able to:** Send text queries to the system and receive relevant, concise AI responses that are stored in the session conversation history.
 
-- [ ] 5.1 Set up AWS Bedrock client and authentication
+- [x] 5.1 Set up AWS Bedrock client and authentication
 
   - Implement Bedrock API client with proper IAM permissions
   - Configure model selection (Claude/GPT) for voice interactions
@@ -157,7 +157,7 @@
   - **Test**: Simple Bedrock API call returns successful response
   - _Requirements: 3.1_
 
-- [ ] 5.2 Create voice-optimized AI prompts
+- [x] 5.2 Create voice-optimized AI prompts
 
   - Design system prompts for phone conversation context
   - Implement response length constraints (max 150 words for 60-second speech)
@@ -166,7 +166,7 @@
   - **Test**: Generate responses to test queries, verify length and clarity
   - _Requirements: 3.3, 3.4_
 
-- [ ] 5.3 Implement conversation context integration
+- [x] 5.3 Implement conversation context integration
 
   - Build conversation history from session data
   - Create context-aware prompt building
@@ -175,7 +175,7 @@
   - **Test**: Multi-turn conversation maintains context and references previous exchanges
   - _Requirements: 3.2_
 
-- [ ] 5.4 Connect AI processing to call pipeline
+- [x] 5.4 Connect AI processing to call pipeline
   - Integrate AI response generation with transcribed user input
   - Add AI response storage to session conversation history
   - Implement error handling for AI service failures

@@ -247,6 +247,45 @@ export class DynamoSessionManager {
   }
 
   /**
+   * Updates a conversation entry with audio file metadata
+   */
+  async updateConversationEntryWithAudio(
+    sessionId: string,
+    entryId: string,
+    audioFileInfo: import('../types/session').AudioFileInfo
+  ): Promise<void> {
+    // First, get the session to find the entry index
+    const session = await this.getSession(sessionId);
+    if (!session) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+
+    const entryIndex = session.conversationHistory.findIndex(entry => entry.id === entryId);
+    if (entryIndex === -1) {
+      throw new Error(`Conversation entry not found: ${entryId}`);
+    }
+
+    const command = new UpdateItemCommand({
+      TableName: this.tableName,
+      Key: marshall({ sessionId }),
+      UpdateExpression: `SET conversationHistory[${entryIndex}].audioFileInfo = :audioFileInfo, lastActivity = :lastActivity`,
+      ExpressionAttributeValues: marshall({
+        ':audioFileInfo': audioFileInfo,
+        ':lastActivity': Date.now(),
+      }, { removeUndefinedValues: true }),
+      ConditionExpression: 'attribute_exists(sessionId)',
+    });
+
+    try {
+      await this.client.send(command);
+      console.log(`Updated conversation entry ${entryId} with audio file metadata`);
+    } catch (error) {
+      console.error('Error updating conversation entry with audio:', error);
+      throw new Error(`Failed to update conversation entry with audio: ${error}`);
+    }
+  }
+
+  /**
    * Updates the total call duration
    */
   async updateCallDuration(sessionId: string, durationSeconds: number): Promise<void> {

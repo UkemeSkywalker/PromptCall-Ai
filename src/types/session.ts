@@ -6,6 +6,24 @@
 import { v4 as uuidv4 } from 'uuid';
 
 /**
+ * Audio file metadata for conversation entries
+ */
+export interface AudioFileInfo {
+  /** Original Twilio recording URL */
+  originalUrl: string;
+  /** S3 key for the stored audio file */
+  s3Key: string;
+  /** S3 URL for the stored audio file */
+  s3Url: string;
+  /** File size in bytes */
+  fileSize?: number;
+  /** Audio duration in seconds */
+  duration?: number;
+  /** Upload timestamp */
+  uploadedAt: number;
+}
+
+/**
  * Represents a single conversation entry in a call session
  */
 export interface ConversationEntry {
@@ -19,6 +37,8 @@ export interface ConversationEntry {
   text: string;
   /** Optional URL to audio file (for user speech or AI responses) */
   audioUrl?: string;
+  /** Audio file metadata for S3 stored files */
+  audioFileInfo?: AudioFileInfo;
   /** Confidence score for speech-to-text (0-1, only for user entries) */
   confidence?: number;
   /** Processing duration in milliseconds */

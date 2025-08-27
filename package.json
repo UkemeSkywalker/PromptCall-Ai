@@ -4,7 +4,7 @@
   "description": "Voice-to-AI conversational platform MVP",
   "main": "index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts/bundle-lambda.js",
     "watch": "tsc -w",
     "test": "jest",
     "cdk": "npx cdk",
@@ -12,7 +12,13 @@
     "synth": "cdk synth",
     "test-sessions": "npm run build && node scripts/test-session-management.js",
     "demo": "npm run test-sessions",
-    "check-infra": "node scripts/check-infrastructure.js"
+    "check-infra": "node scripts/check-infrastructure.js",
+    "check-twilio": "node scripts/check-twilio.js",
+    "configure-twilio": "node scripts/configure-twilio.js",
+    "test-call-flow": "node scripts/test-call-flow.js",
+    "monitor": "node scripts/monitor-sessions.js",
+    "monitor-recent": "node scripts/monitor-sessions.js --recent",
+    "verify": "node scripts/verify-deployment.js"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.119",
@@ -26,15 +32,19 @@
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.400.0",
+    "@aws-sdk/client-cloudwatch-logs": "^3.876.0",
     "@aws-sdk/client-dynamodb": "^3.400.0",
     "@aws-sdk/client-polly": "^3.400.0",
     "@aws-sdk/client-s3": "^3.400.0",
     "@aws-sdk/client-transcribe": "^3.400.0",
+    "@aws-sdk/s3-request-presigner": "^3.876.0",
     "@aws-sdk/util-dynamodb": "^3.873.0",
     "@types/uuid": "^10.0.0",
     "aws-cdk-lib": "^2.95.1",
     "aws-lambda": "^1.0.7",
     "constructs": "^10.3.0",
+    "dotenv": "^17.2.1",
+    "twilio": "^5.8.0",
     "uuid": "^11.1.0"
   }
 }
