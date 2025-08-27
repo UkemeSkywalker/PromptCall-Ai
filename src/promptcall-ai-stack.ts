@@ -86,7 +86,10 @@ export class PromptCallAiStack extends cdk.Stack {
               actions: [
                 'transcribe:StartTranscriptionJob',
                 'transcribe:GetTranscriptionJob',
-                'transcribe:ListTranscriptionJobs'
+                'transcribe:ListTranscriptionJobs',
+                'transcribe:TagResource',
+                'transcribe:UntagResource',
+                'transcribe:ListTagsForResource'
               ],
               resources: ['*']
             })
@@ -121,12 +124,14 @@ export class PromptCallAiStack extends cdk.Stack {
     // Lambda function for handling Twilio webhooks
     const webhookHandler = new lambda.Function(this, 'WebhookHandler', {
       runtime: lambda.Runtime.NODEJS_18_X,
-      handler: 'webhook-handler.handler',
-      code: lambda.Code.fromAsset('dist/lambda'),
+      handler: 'lambda/webhook-handler.handler',
+      code: lambda.Code.fromAsset('lambda-bundle'),
       role: lambdaRole,
       environment: {
         SESSION_TABLE_NAME: sessionTable.tableName,
         AUDIO_BUCKET_NAME: audioBucket.bucketName,
+        TWILIO_ACCOUNT_SID: process.env.TWILIO_ACCOUNT_SID || '',
+        TWILIO_AUTH_TOKEN: process.env.TWILIO_AUTH_TOKEN || '',
       },
       timeout: cdk.Duration.seconds(30),
     });
