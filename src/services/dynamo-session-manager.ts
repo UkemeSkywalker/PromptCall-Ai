@@ -239,6 +239,34 @@ export class DynamoSessionManager {
   }
 
   /**
+   * Updates a conversation entry with audio URL
+   */
+  async updateConversationEntryWithAudio(
+    sessionId: string,
+    entryIndex: number,
+    audioUrl: string
+  ): Promise<void> {
+    const command = new UpdateItemCommand({
+      TableName: this.tableName,
+      Key: marshall({ sessionId }),
+      UpdateExpression: `SET conversationHistory[${entryIndex}].audioUrl = :audioUrl, lastActivity = :lastActivity`,
+      ExpressionAttributeValues: marshall({
+        ':audioUrl': audioUrl,
+        ':lastActivity': Date.now(),
+      }, { removeUndefinedValues: true }),
+      ConditionExpression: 'attribute_exists(sessionId)',
+    });
+
+    try {
+      await this.client.send(command);
+      console.log(`Updated conversation entry ${entryIndex} with audio URL for session: ${sessionId}`);
+    } catch (error) {
+      console.error('Error updating conversation entry with audio:', error);
+      throw new Error(`Failed to update conversation entry with audio: ${error}`);
+    }
+  }
+
+  /**
    * Adds a system message to the conversation
    */
   async addSystemMessage(sessionId: string, text: string): Promise<void> {

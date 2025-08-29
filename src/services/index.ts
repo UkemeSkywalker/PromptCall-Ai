@@ -12,3 +12,6 @@ export type {
   SessionState, 
   ConversationContextConfig 
 } from './conversation-context-manager';
+
+export { DTMFService } from './dtmf-service';
+export type { DTMFInput, DTMFResponse } from './dtmf-service';

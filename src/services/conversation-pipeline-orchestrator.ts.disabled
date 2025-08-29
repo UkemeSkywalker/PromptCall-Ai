@@ -1,0 +1,470 @@
+/**
+ * Conversation Pipeline Orchestrator
+ * 
+ * Orchestrates the complete conversation pipeline:
+ * Speech-to-Text → AI Processing → Text-to-Speech
+ */
+
+import { DynamoSessionManager } from './dynamo-session-manager';
+import { S3Service } from './s3-service';
+import { TranscriptionProcessor } from './transcription-processor';
+import { AIConversationService } from './ai-conversation-service';
+import { PollyService } from './polly-service';
+import { CallTerminationService } from './call-termination-service';
+import { TimeoutManager } from './timeout-manager';
+import { createConversationEntry } from '../types/session';
+
+export interface PipelineResult {
+  success: boolean;
+  twimlResponse: string;
+  error?: string;
+  processingTimeMs?: number;
+  conversationTurn?: number;
+  isFollowUpExpected?: boolean;
+  conversationPhase?: 'greeting' | 'conversation' | 'clarification' | 'closing';
+}
+
+export class ConversationPipelineOrchestrator {
+  private sessionManager: DynamoSessionManager;
+  private s3Service: S3Service;
+  private transcriptionProcessor: TranscriptionProcessor;
+  private aiConversationService: AIConversationService;
+  private pollyService: PollyService;
+  private terminationService?: CallTerminationService;
+
+  constructor(
+    sessionManager: DynamoSessionManager,
+    s3Service: S3Service,
+    transcriptionProcessor: TranscriptionProcessor,
+    aiConversationService: AIConversationService,
+    pollyService: PollyService,
+    timeoutManager?: TimeoutManager
+  ) {
+    this.sessionManager = sessionManager;
+    this.s3Service = s3Service;
+    this.transcriptionProcessor = transcriptionProcessor;
+    this.aiConversationService = aiConversationService;
+    this.pollyService = pollyService;
+    
+    // Initialize termination service if timeout manager is provided
+    if (timeoutManager) {
+      this.terminationService = new CallTerminationService(
+        sessionManager,
+        timeoutManager,
+        {
+          enableCompletionDetection: true,
+          maxConversationTurns: 15,
+          enableGracefulGoodbyes: true
+        }
+      );
+    }
+  }
+
+  /**
+   * Process complete conversation pipeline from audio input to TwiML response
+   */
+  async processConversationTurn(
+    recordingUrl: string,
+    callSid: string,
+    recordingDuration?: string
+  ): Promise<PipelineResult> {
+    const startTime = Date.now();
+    
+    try {
+      console.log(`🚀 PIPELINE: Starting complete conversation processing for CallSid: ${callSid}`);
+
+      // Find session
+      const session = await this.sessionManager.getSessionByCallSid(callSid);
+      if (!session) {
+        throw new Error(`Session not found for CallSid: ${callSid}`);
+      }
+
+      // Determine conversation turn and phase
+      const conversationTurn = this.calculateConversationTurn(session);
+      const conversationPhase = this.determineConversationPhase(session, conversationTurn);
+      
+      console.log(`🔄 CONVERSATION: Turn ${conversationTurn}, Phase: ${conversationPhase}`);
+
+      // Stage 1: Audio Upload and Processing
+      console.log(`📤 PIPELINE STAGE 1: Audio upload and validation`);
+      const userEntry = createConversationEntry(
+        'user',
+        'Audio recording received - processing transcription...',
+        recordingUrl
+      );
+
+      await this.sessionManager.appendConversationEntry(session.sessionId, userEntry);
+
+      const uploadResult = await this.s3Service.uploadAudioFromUrl(
+        recordingUrl,
+        session.sessionId,
+        callSid
+      );
+
+      // Update the conversation entry with audio information
+      // For now, we'll update the entry by finding its index
+      const session_updated = await this.sessionManager.getSession(session.sessionId);
+      if (session_updated) {
+        const entryIndex = session_updated.conversationHistory.findIndex(entry => entry.id === userEntry.id);
+        if (entryIndex >= 0) {
+          await this.sessionManager.updateConversationEntryWithAudio(
+            session.sessionId,
+            entryIndex,
+            uploadResult.s3Url
+          );
+        }
+      }
+
+      // Validate audio quality
+      const audioQuality = this.transcriptionProcessor.validateAudioQuality({
+        fileSize: uploadResult.metadata.fileSize,
+        duration: recordingDuration ? parseFloat(recordingDuration) : undefined
+      });
+
+      if (!audioQuality.isValid) {
+        throw new Error(`Audio quality validation failed: ${audioQuality.reason}`);
+      }
+
+      // Stage 2: Transcription
+      console.log(`🎤 PIPELINE STAGE 2: Speech-to-text transcription`);
+      const transcriptionResult = await this.transcriptionProcessor.processTranscription(
+        uploadResult.s3Url,
+        session.sessionId,
+        userEntry.id,
+        callSid
+      );
+
+      if (!transcriptionResult.success) {
+        return this.createTranscriptionFailureResponse(transcriptionResult.attempts);
+      }
+
+      console.log(`✅ TRANSCRIPTION SUCCESS: "${transcriptionResult.text}" (confidence: ${transcriptionResult.confidence.toFixed(3)})`);
+
+      // Stage 3: AI Processing
+      console.log(`🤖 PIPELINE STAGE 3: AI response generation`);
+      const conversationResult = await this.aiConversationService.processUserMessage(
+        session.sessionId,
+        transcriptionResult.text,
+        uploadResult.s3Url,
+        transcriptionResult.confidence
+      );
+
+      console.log(`✅ AI RESPONSE: "${conversationResult.aiResponse.text}"`);
+
+      // Check for termination intent before generating response
+      if (this.terminationService) {
+        const terminationAnalysis = await this.terminationService.analyzeTerminationIntent(
+          session.sessionId,
+          transcriptionResult.text,
+          conversationTurn,
+          transcriptionResult.confidence
+        );
+
+        if (terminationAnalysis.shouldTerminate) {
+          console.log(`🔚 TERMINATION: Call termination detected - ${terminationAnalysis.terminationType}`);
+          
+          const processingTime = Date.now() - startTime;
+          return {
+            success: true,
+            twimlResponse: terminationAnalysis.twimlResponse,
+            processingTimeMs: processingTime,
+            conversationTurn,
+            isFollowUpExpected: false,
+            conversationPhase: 'closing'
+          };
+        }
+      }
+
+      // Stage 4: Speech Synthesis and TwiML Generation
+      console.log(`🎤 PIPELINE STAGE 4: Text-to-speech synthesis`);
+      
+      // Detect if this is a follow-up question or conversation continuation
+      const isFollowUpExpected = this.detectFollowUpExpectation(
+        transcriptionResult.text,
+        conversationResult.aiResponse.text,
+        conversationPhase
+      );
+      
+      const twimlResponse = await this.generateResponseTwiML(
+        session.sessionId,
+        conversationResult.aiResponse.text,
+        conversationPhase,
+        isFollowUpExpected
+      );
+
+      const processingTime = Date.now() - startTime;
+      console.log(`✅ PIPELINE COMPLETE: Total processing time: ${processingTime}ms`);
+
+      return {
+        success: true,
+        twimlResponse,
+        processingTimeMs: processingTime,
+        conversationTurn,
+        isFollowUpExpected,
+        conversationPhase
+      };
+
+    } catch (error) {
+      const processingTime = Date.now() - startTime;
+      console.error(`❌ PIPELINE ERROR: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      
+      return {
+        success: false,
+        twimlResponse: this.createErrorTwiML('Sorry, there was an error processing your request. Please try again.'),
+        error: error instanceof Error ? error.message : 'Unknown error',
+        processingTimeMs: processingTime
+      };
+    }
+  }
+
+  private calculateConversationTurn(session: any): number {
+    // Count user entries in conversation history to determine turn number
+    // Add 1 because we're about to process the current user input
+    const userEntries = session.conversationHistory?.filter((entry: any) => entry.type === 'user') || [];
+    return userEntries.length + 1;
+  }
+
+  private determineConversationPhase(session: any, turnNumber: number): 'greeting' | 'conversation' | 'clarification' | 'closing' {
+    if (turnNumber === 1) {
+      return 'greeting';
+    } else if (turnNumber <= 5) {
+      return 'conversation';
+    } else if (turnNumber <= 8) {
+      return 'clarification';
+    } else {
+      return 'closing';
+    }
+  }
+
+  private detectFollowUpExpectation(
+    userText: string,
+    aiResponse: string,
+    phase: string
+  ): boolean {
+    // Keywords that suggest the user might have follow-up questions
+    const followUpIndicators = [
+      'tell me more', 'explain', 'how', 'why', 'what about', 'can you',
+      'also', 'another', 'more information', 'details', 'example'
+    ];
+
+    // AI responses that naturally invite follow-ups
+    const aiFollowUpIndicators = [
+      'would you like to know more', 'any other questions', 'anything else',
+      'let me know if', 'feel free to ask', 'is there anything'
+    ];
+
+    const userLower = userText.toLowerCase();
+    const aiLower = aiResponse.toLowerCase();
+
+    const userHasFollowUpIntent = followUpIndicators.some(indicator => 
+      userLower.includes(indicator)
+    );
+
+    const aiInvitesFollowUp = aiFollowUpIndicators.some(indicator => 
+      aiLower.includes(indicator)
+    );
+
+    // More likely to expect follow-ups in conversation phase
+    const phaseExpectsFollowUp = phase === 'conversation' || phase === 'clarification';
+
+    return userHasFollowUpIntent || aiInvitesFollowUp || phaseExpectsFollowUp;
+  }
+
+  private async generateResponseTwiML(
+    sessionId: string, 
+    aiResponse: string, 
+    phase: 'greeting' | 'conversation' | 'clarification' | 'closing' = 'conversation',
+    expectFollowUp: boolean = true
+  ): Promise<string> {
+    try {
+      // Generate AI response audio with Polly
+      const responseAudio = await this.pollyService.synthesizeSpeech(
+        aiResponse,
+        sessionId,
+        this.pollyService.getTelephonyConfig(),
+        { 
+          telephonyOptimized: true,
+          addPauses: true 
+        }
+      );
+
+      // Generate appropriate follow-up based on conversation phase and expectation
+      const followUpText = this.generateFollowUpText(phase, expectFollowUp);
+      const followUpAudio = await this.pollyService.synthesizeSpeech(
+        followUpText,
+        sessionId,
+        this.pollyService.getTelephonyConfig(),
+        { telephonyOptimized: true }
+      );
+
+      console.log(`🎤 POLLY SUCCESS: Generated response and follow-up audio`);
+
+      // Ensure we have playback URLs, fallback to audioUrl if needed
+      const responseUrl = responseAudio.playbackUrl || responseAudio.audioUrl;
+      const followUpUrl = followUpAudio.playbackUrl || followUpAudio.audioUrl;
+
+      if (!responseUrl || !followUpUrl) {
+        throw new Error('Failed to generate audio URLs for TwiML playback');
+      }
+
+      return this.createConversationTwiML(
+        responseUrl,
+        followUpUrl,
+        phase,
+        expectFollowUp
+      );
+
+    } catch (error) {
+      console.error(`❌ POLLY ERROR: Falling back to Twilio TTS:`, error);
+      
+      // Fallback to Twilio's built-in TTS
+      const escapedResponse = aiResponse
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+
+      const followUpText = this.generateFollowUpText(phase, expectFollowUp);
+      
+      return this.createFallbackConversationTwiML(
+        escapedResponse,
+        followUpText,
+        phase,
+        expectFollowUp
+      );
+    }
+  }
+
+  private createTranscriptionFailureResponse(attempts: number): PipelineResult {
+    return {
+      success: false,
+      twimlResponse: `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice" rate="1">
+    I'm sorry, but I wasn't able to understand your speech clearly after ${attempts} attempts. 
+    Please try speaking more clearly, or call back from a quieter location.
+  </Say>
+  <Pause length="1"/>
+  <Say voice="alice">Would you like to try again?</Say>
+  <Record 
+    action="https://kl1zzr3v5k.execute-api.us-east-1.amazonaws.com/prod/webhook/speech" 
+    method="POST" 
+    maxLength="30" 
+    timeout="10"
+    playBeep="true"
+    recordingStatusCallback="https://kl1zzr3v5k.execute-api.us-east-1.amazonaws.com/prod/webhook/events"
+    recordingStatusCallbackMethod="POST"
+  />
+  <Say voice="alice">Thank you for using PromptCall AI. Goodbye!</Say>
+</Response>`,
+      error: `Transcription failed after ${attempts} attempts`
+    };
+  }
+
+  private generateFollowUpText(
+    phase: 'greeting' | 'conversation' | 'clarification' | 'closing',
+    expectFollowUp: boolean
+  ): string {
+    if (phase === 'closing' || !expectFollowUp) {
+      return "Is there anything else I can help you with before we end our call?";
+    }
+
+    const followUpOptions = {
+      greeting: [
+        "What else would you like to know?",
+        "Do you have any other questions?",
+        "How else can I assist you today?"
+      ],
+      conversation: [
+        "Is there anything else I can help you with?",
+        "Do you have any follow-up questions?",
+        "Would you like to know more about anything else?"
+      ],
+      clarification: [
+        "Does that answer your question, or would you like me to explain further?",
+        "Is there anything else you'd like me to clarify?",
+        "Do you need more details about anything?"
+      ]
+    };
+
+    const options = followUpOptions[phase] || followUpOptions.conversation;
+    return options[Math.floor(Math.random() * options.length)];
+  }
+
+  private createConversationTwiML(
+    responseAudioUrl: string,
+    followUpAudioUrl: string,
+    phase: 'greeting' | 'conversation' | 'clarification' | 'closing',
+    expectFollowUp: boolean
+  ): string {
+    const timeout = expectFollowUp ? "15" : "10"; // Longer timeout if follow-up expected
+    const maxLength = phase === 'closing' ? "20" : "30"; // Shorter for closing phase
+
+    // Escape XML characters in URLs
+    const escapedResponseUrl = responseAudioUrl
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    
+    const escapedFollowUpUrl = followUpAudioUrl
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Play>${escapedResponseUrl}</Play>
+  <Pause length="1"/>
+  <Play>${escapedFollowUpUrl}</Play>
+  <Record 
+    action="https://kl1zzr3v5k.execute-api.us-east-1.amazonaws.com/prod/webhook/speech" 
+    method="POST" 
+    maxLength="${maxLength}" 
+    timeout="${timeout}"
+    playBeep="true"
+    recordingStatusCallback="https://kl1zzr3v5k.execute-api.us-east-1.amazonaws.com/prod/webhook/events"
+    recordingStatusCallbackMethod="POST"
+  />
+  ${phase === 'closing' ? '<Say voice="alice">Thank you for using PromptCall AI. Goodbye!</Say>' : '<Redirect>https://kl1zzr3v5k.execute-api.us-east-1.amazonaws.com/prod/webhook/timeout</Redirect>'}
+</Response>`;
+  }
+
+  private createFallbackConversationTwiML(
+    aiResponse: string,
+    followUpText: string,
+    phase: 'greeting' | 'conversation' | 'clarification' | 'closing',
+    expectFollowUp: boolean
+  ): string {
+    const timeout = expectFollowUp ? "15" : "10";
+    const maxLength = phase === 'closing' ? "20" : "30";
+
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice" rate="1">
+    ${aiResponse}
+  </Say>
+  <Pause length="1"/>
+  <Say voice="alice">
+    ${followUpText}
+  </Say>
+  <Record 
+    action="https://kl1zzr3v5k.execute-api.us-east-1.amazonaws.com/prod/webhook/speech" 
+    method="POST" 
+    maxLength="${maxLength}" 
+    timeout="${timeout}"
+    playBeep="true"
+    recordingStatusCallback="https://kl1zzr3v5k.execute-api.us-east-1.amazonaws.com/prod/webhook/events"
+    recordingStatusCallbackMethod="POST"
+  />
+  ${phase === 'closing' ? '<Say voice="alice">Thank you for using PromptCall AI. Goodbye!</Say>' : '<Redirect>https://kl1zzr3v5k.execute-api.us-east-1.amazonaws.com/prod/webhook/timeout</Redirect>'}
+</Response>`;
+  }
+
+  private createErrorTwiML(message: string): string {
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice">${message}</Say>
+</Response>`;
+  }
+}

@@ -64,11 +64,54 @@
   - **Test**: Manual DynamoDB queries show correct session data structure with conversation history
   - _Requirements: 6.2_
 
-## Milestone 3: Basic Call Handling
+## Milestone 3: DTMF User Controls
+
+- [ ] 3
+
+**At the end of this milestone, I should be able to:** Call the system and use keypad controls - press "1" to submit my spoken prompt for processing, and press "0" to end the call gracefully when satisfied with the AI response.
+
+- [x] 3.1 Implement DTMF input detection and handling
+
+  - Set up Twilio DTMF gathering using `<Gather>` verb in TwiML responses
+  - Create webhook handlers for processing DTMF input (digits pressed)
+  - Add DTMF event parsing and validation for "1" (submit) and "0" (end call)
+  - **Working Criteria**: System can detect and process keypad button presses
+  - **Test**: Call system and press keys, verify DTMF events are received and logged
+  - _Requirements: 1.2, 1.3_
+
+- [x] 3.2 Add prompt submission control with "1" key
+
+  - Implement "1" key as submit/enter button for user prompts
+  - Create immediate processing trigger when "1" is pressed after speech
+  - Add user instructions for using "1" to submit prompts
+  - **Working Criteria**: Users can press "1" to immediately submit their spoken prompt
+  - **Test**: Speak prompt, press "1", verify immediate processing without waiting for silence
+  - _Requirements: 1.2, 1.3_
+
+- [x] 3.3 Add graceful call termination with "0" key
+
+  - Implement "0" key as end call button for satisfied users
+  - Create goodbye message playback before call termination
+  - Add session cleanup and final state updates when "0" is pressed
+  - **Working Criteria**: Users can press "0" to end calls gracefully with goodbye message
+  - **Test**: Complete conversation, press "0", verify goodbye message and clean call termination
+  - _Requirements: 1.3, 5.4_
+
+- [x] 3.4 Create user instruction system for DTMF controls
+  - Add welcome message explaining "1" to submit and "0" to end call
+  - Create reminder prompts during conversation for available controls
+  - Implement help system accessible via DTMF (optional "\*" key for help)
+  - **Working Criteria**: Users understand how to use keypad controls from audio instructions
+  - **Test**: Call system, verify clear instructions for using "1" and "0" keys
+  - _Requirements: 1.2, 1.3_
+
+## Milestone 4: Basic Call Handling
+
+- [ ] 4
 
 **At the end of this milestone, I should be able to:** Call a phone number, hear a welcome message, and see that a session was created in DynamoDB with the call details.
 
-- [ ] 3.1 Create Twilio webhook endpoints and request parsing
+- [ ] 4.1 Create Twilio webhook endpoints and request parsing
 
   - Set up API Gateway routes for /webhook/voice, /webhook/speech, /webhook/events
   - Implement Lambda handlers for incoming Twilio voice webhooks
@@ -78,7 +121,7 @@
   - **Test**: POST requests to webhook endpoints return valid TwiML responses with proper XML structure
   - _Requirements: 1.1_
 
-- [ ] 3.2 Implement TwiML response generation
+- [ ] 4.2 Implement TwiML response generation
 
   - Create TwiML XML response builders for Twilio call control
   - Add welcome message generation using Twilio `<Say>` verb
@@ -87,7 +130,7 @@
   - **Test**: TwiML responses validate against Twilio TwiML schemas
   - _Requirements: 1.2_
 
-- [ ] 3.3 Add call session management
+- [ ] 4.3 Add call session management
 
   - Create new sessions when calls start
   - Handle call events (start, end, error)
@@ -96,7 +139,7 @@
   - **Test**: Call test number, verify session created in DynamoDB with correct call data
   - _Requirements: 1.3_
 
-- [ ] 3.4 Implement welcome message playback
+- [ ] 4.4 Implement welcome message playback
   - Add audio file generation for welcome message
   - Implement message playback through telephony provider
   - Add prompt for user to speak their question
@@ -104,11 +147,13 @@
   - **Test**: Call test number, hear complete welcome message and speech prompt
   - _Requirements: 1.2, 1.3_
 
-## Milestone 4: Speech-to-Text Processing
+## Milestone 5: Speech-to-Text Processing
+
+- [ ] 5
 
 **At the end of this milestone, I should be able to:** Call the system, speak a sentence, and see the transcribed text appear in the session logs with confidence scores.
 
-- [ ] 4.1 Implement audio recording and S3 storage
+- [ ] 5.1 Implement audio recording and S3 storage
 
   - Set up Twilio recording webhook handler to receive audio URLs
   - Create S3Service class for uploading audio files with proper naming
@@ -118,7 +163,7 @@
   - **Test**: Make test call with speech, verify audio file appears in S3 bucket with correct metadata
   - _Requirements: 2.1_
 
-- [ ] 4.2 Create Amazon Transcribe integration
+- [ ] 5.2 Create Amazon Transcribe integration
 
   - Implement Transcribe job creation from S3 audio files
   - Add job status polling and result retrieval
@@ -127,7 +172,7 @@
   - **Test**: Upload test audio file, verify Transcribe job completes with text output
   - _Requirements: 2.1, 2.2_
 
-- [ ] 4.3 Add transcription processing and validation
+- [ ] 5.3 Add transcription processing and validation
 
   - Implement confidence score evaluation
   - Add transcription result parsing and formatting
@@ -136,7 +181,7 @@
   - **Test**: Process various audio qualities, verify confidence scoring works correctly
   - _Requirements: 2.2, 2.3_
 
-- [ ] 4.4 Integrate speech-to-text with call flow
+- [ ] 5.4 Integrate speech-to-text with call flow
   - Connect audio recording to transcription pipeline
   - Add transcribed text to session conversation history
   - Implement error handling for transcription failures
@@ -144,9 +189,10 @@
   - **Test**: Call system, speak test phrase, verify transcribed text appears in session logs
   - _Requirements: 2.1, 2.4_
 
-## Milestone 5: AI Response Generation
+## Milestone 6: AI Response Generation
 
-**At the end of this milestone, I should be able to:** Send text queries to the system and receive relevant, concise AI responses that are stored in the session conversation history.
+- [ ] 6
+      **At the end of this milestone, I should be able to:** Send text queries to the system and receive relevant, concise AI responses that are stored in the session conversation history.
 
 - [ ] 5.1 Set up AWS Bedrock client and authentication
 
@@ -184,6 +230,8 @@
   - _Requirements: 3.1, 3.2_
 
 ## Milestone 6: Text-to-Speech Output
+
+- [ ] 6
 
 **At the end of this milestone, I should be able to:** Call the system, ask a question, and hear the AI's response played back to me clearly over the phone.
 
@@ -223,6 +271,8 @@
   - _Requirements: 4.1, 4.4_
 
 ## Milestone 7: Complete Conversation Flow
+
+- [ ] 7
 
 **At the end of this milestone, I should be able to:** Have a natural back-and-forth conversation with the AI over the phone, ask follow-up questions, and have the call end gracefully when I'm done.
 

@@ -1,4 +1,7 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
+import { DTMFService, DTMFInput } from '../services/dtmf-service';
+
+const dtmfService = new DTMFService();
 
 export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
   console.log('Received webhook event:', JSON.stringify(event, null, 2));
@@ -16,6 +19,8 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
       return handleVoiceWebhook(body);
     } else if (path.includes('/webhook/speech') && httpMethod === 'POST') {
       return handleSpeechWebhook(body);
+    } else if (path.includes('/webhook/dtmf') && httpMethod === 'POST') {
+      return handleDTMFWebhook(body);
     } else if (path.includes('/webhook/events') && httpMethod === 'POST') {
       return handleEventsWebhook(body);
     }
@@ -53,10 +58,12 @@ function handleVoiceWebhook(body: Record<string, string>): APIGatewayProxyResult
   
   console.log(`Incoming call from ${from} to ${to}, CallSid: ${callSid}`);
   
-  // Create TwiML response for welcome message and recording
+  // Create TwiML response with welcome message and recording
+  const welcomeMessage = dtmfService.generateWelcomeWithInstructions();
+  
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice">Welcome to PromptCall AI. Please speak your question after the beep, and I'll help you with an AI-powered response.</Say>
+  <Say voice="alice">${welcomeMessage}</Say>
   <Record 
     action="/webhook/speech" 
     method="POST" 
@@ -84,23 +91,105 @@ function handleSpeechWebhook(body: Record<string, string>): APIGatewayProxyResul
   
   console.log(`Speech recording received for CallSid: ${callSid}, URL: ${recordingUrl}`);
   
-  // For now, just acknowledge the recording and provide a basic response
-  // In later tasks, this will integrate with Transcribe, Bedrock, and Polly
+  // After speech recording, immediately wait for DTMF input without any prompt
+  // User should press "1" to submit or "0" to end call
+  const gatherTwiML = dtmfService.generateGatherTwiML({
+    action: '/webhook/dtmf',
+    timeout: 30, // Give user time to press a key
+    numDigits: 1,
+    finishOnKey: '' // Don't require finish key, just single digit
+  });
+  
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice">Thank you for your question. I'm processing your request and will have an AI response ready soon. This is a basic response for now.</Say>
-  <Pause length="1"/>
-  <Say voice="alice">Is there anything else I can help you with?</Say>
-  <Record 
-    action="/webhook/speech" 
-    method="POST" 
-    maxLength="30" 
-    timeout="10"
-    playBeep="true"
-  />
-  <Say voice="alice">Thank you for using PromptCall AI. Goodbye!</Say>
+  ${gatherTwiML}
+  <Say voice="alice">I didn't receive any keypad input. Please press 1 to submit your question or 0 to end the call.</Say>
 </Response>`;
 
+  return {
+    statusCode: 200,
+    headers: {
+      'Content-Type': 'application/xml'
+    },
+    body: twiml
+  };
+}
+
+function handleDTMFWebhook(body: Record<string, string>): APIGatewayProxyResult {
+  const digits = body.Digits;
+  const callSid = body.CallSid;
+  const from = body.From;
+  const to = body.To;
+  
+  console.log(`DTMF input received: ${digits} for CallSid: ${callSid}`);
+  
+  const dtmfInput: DTMFInput = {
+    digits,
+    callSid,
+    from,
+    to
+  };
+  
+  const response = dtmfService.processDTMFInput(dtmfInput);
+  
+  let twiml = `<?xml version="1.0" encoding="UTF-8"?><Response>`;
+  
+  if (response.message) {
+    twiml += `<Say voice="alice">${response.message}</Say>`;
+  }
+  
+  if (response.action === 'submit') {
+    // User pressed "1" - process their spoken prompt
+    twiml += `<Say voice="alice">Processing your request now. Please wait.</Say>`;
+    // In later tasks, this will trigger AI processing
+    twiml += `<Say voice="alice">This is a placeholder response. Your AI processing will be implemented in later tasks.</Say>`;
+    twiml += `<Pause length="1"/>`;
+    twiml += `<Say voice="alice">Is there anything else I can help you with?</Say>`;
+    
+    // Continue with another recording session
+    const recordWithDTMF = dtmfService.generateRecordWithDTMFTwiML({
+      speechAction: '/webhook/speech',
+      dtmfAction: '/webhook/dtmf',
+      maxLength: 30,
+      timeout: 10,
+      prompt: dtmfService.generateControlsReminder()
+    });
+    twiml += recordWithDTMF;
+    
+  } else if (response.action === 'end_call') {
+    // User pressed "0" - end the call gracefully
+    twiml += `<Hangup/>`;
+    
+  } else if (response.action === 'help') {
+    // User pressed "*" - provide help
+    twiml += `<Pause length="1"/>`;
+    
+    // Continue with recording after help
+    const recordWithDTMF = dtmfService.generateRecordWithDTMFTwiML({
+      speechAction: '/webhook/speech',
+      dtmfAction: '/webhook/dtmf',
+      maxLength: 30,
+      timeout: 10,
+      prompt: 'Please speak your question after the beep.'
+    });
+    twiml += recordWithDTMF;
+    
+  } else {
+    // Invalid input - provide guidance and continue
+    twiml += `<Pause length="1"/>`;
+    
+    const recordWithDTMF = dtmfService.generateRecordWithDTMFTwiML({
+      speechAction: '/webhook/speech',
+      dtmfAction: '/webhook/dtmf',
+      maxLength: 30,
+      timeout: 10,
+      prompt: 'Please speak your question after the beep.'
+    });
+    twiml += recordWithDTMF;
+  }
+  
+  twiml += `</Response>`;
+  
   return {
     statusCode: 200,
     headers: {

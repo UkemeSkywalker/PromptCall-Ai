@@ -153,6 +153,10 @@ export class PromptCallAiStack extends cdk.Stack {
     const speechResource = webhookResource.addResource('speech');
     speechResource.addMethod('POST', new apigateway.LambdaIntegration(webhookHandler));
 
+    // DTMF processing webhook endpoint
+    const dtmfResource = webhookResource.addResource('dtmf');
+    dtmfResource.addMethod('POST', new apigateway.LambdaIntegration(webhookHandler));
+
     // Events webhook endpoint
     const eventsResource = webhookResource.addResource('events');
     eventsResource.addMethod('POST', new apigateway.LambdaIntegration(webhookHandler));
