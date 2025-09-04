@@ -107,11 +107,11 @@
 
 ## Milestone 4: Basic Call Handling
 
-- [ ] 4
+- [x] 4.
 
 **At the end of this milestone, I should be able to:** Call a phone number, hear a welcome message, and see that a session was created in DynamoDB with the call details.
 
-- [ ] 4.1 Create Twilio webhook endpoints and request parsing
+- [x] 4.1 Create Twilio webhook endpoints and request parsing
 
   - Set up API Gateway routes for /webhook/voice, /webhook/speech, /webhook/events
   - Implement Lambda handlers for incoming Twilio voice webhooks
@@ -121,7 +121,7 @@
   - **Test**: POST requests to webhook endpoints return valid TwiML responses with proper XML structure
   - _Requirements: 1.1_
 
-- [ ] 4.2 Implement TwiML response generation
+- [x] 4.2 Implement TwiML response generation
 
   - Create TwiML XML response builders for Twilio call control
   - Add welcome message generation using Twilio `<Say>` verb
@@ -130,7 +130,7 @@
   - **Test**: TwiML responses validate against Twilio TwiML schemas
   - _Requirements: 1.2_
 
-- [ ] 4.3 Add call session management
+- [x] 4.3 Add call session management
 
   - Create new sessions when calls start
   - Handle call events (start, end, error)
@@ -139,7 +139,8 @@
   - **Test**: Call test number, verify session created in DynamoDB with correct call data
   - _Requirements: 1.3_
 
-- [ ] 4.4 Implement welcome message playback
+- [x] 4.4 Implement welcome message playback
+
   - Add audio file generation for welcome message
   - Implement message playback through telephony provider
   - Add prompt for user to speak their question
@@ -147,13 +148,11 @@
   - **Test**: Call test number, hear complete welcome message and speech prompt
   - _Requirements: 1.2, 1.3_
 
-## Milestone 5: Speech-to-Text Processing
-
-- [ ] 5
+- [x] 5. Milestone 5: Speech-to-Text Processing
 
 **At the end of this milestone, I should be able to:** Call the system, speak a sentence, and see the transcribed text appear in the session logs with confidence scores.
 
-- [ ] 5.1 Implement audio recording and S3 storage
+- [x] 5.1 Implement audio recording and S3 storage
 
   - Set up Twilio recording webhook handler to receive audio URLs
   - Create S3Service class for uploading audio files with proper naming
@@ -163,7 +162,7 @@
   - **Test**: Make test call with speech, verify audio file appears in S3 bucket with correct metadata
   - _Requirements: 2.1_
 
-- [ ] 5.2 Create Amazon Transcribe integration
+- [x] 5.2 Create Amazon Transcribe integration
 
   - Implement Transcribe job creation from S3 audio files
   - Add job status polling and result retrieval
@@ -172,7 +171,7 @@
   - **Test**: Upload test audio file, verify Transcribe job completes with text output
   - _Requirements: 2.1, 2.2_
 
-- [ ] 5.3 Add transcription processing and validation
+- [x] 5.3 Add transcription processing and validation
 
   - Implement confidence score evaluation
   - Add transcription result parsing and formatting
@@ -181,7 +180,8 @@
   - **Test**: Process various audio qualities, verify confidence scoring works correctly
   - _Requirements: 2.2, 2.3_
 
-- [ ] 5.4 Integrate speech-to-text with call flow
+- [x] 5.4 Integrate speech-to-text with call flow
+
   - Connect audio recording to transcription pipeline
   - Add transcribed text to session conversation history
   - Implement error handling for transcription failures
@@ -189,12 +189,10 @@
   - **Test**: Call system, speak test phrase, verify transcribed text appears in session logs
   - _Requirements: 2.1, 2.4_
 
-## Milestone 6: AI Response Generation
+- [ ] 6. Milestone 6: AI Response Generation
+     **At the end of this milestone, I should be able to:** Send text queries to the system and receive relevant, concise AI responses that are stored in the session conversation history.
 
-- [ ] 6
-      **At the end of this milestone, I should be able to:** Send text queries to the system and receive relevant, concise AI responses that are stored in the session conversation history.
-
-- [ ] 5.1 Set up AWS Bedrock client and authentication
+- [ ] 6.1 Set up AWS Bedrock client and authentication
 
   - Implement Bedrock API client with proper IAM permissions
   - Configure model selection (Claude/GPT) for voice interactions
@@ -203,16 +201,16 @@
   - **Test**: Simple Bedrock API call returns successful response
   - _Requirements: 3.1_
 
-- [ ] 5.2 Create voice-optimized AI prompts
+- [ ] 6.2 Create voice-optimized AI prompts
 
   - Design system prompts for phone conversation context
-  - Implement response length constraints (max 150 words for 60-second speech)
+  - Implement response length constraints (max 160 words for 60-second speech)
   - Add conversation style optimization for voice clarity
   - **Working Criteria**: AI responses are concise and voice-appropriate
   - **Test**: Generate responses to test queries, verify length and clarity
   - _Requirements: 3.3, 3.4_
 
-- [ ] 5.3 Implement conversation context integration
+- [ ] 6.3 Implement conversation context integration
 
   - Build conversation history from session data
   - Create context-aware prompt building
@@ -221,7 +219,8 @@
   - **Test**: Multi-turn conversation maintains context and references previous exchanges
   - _Requirements: 3.2_
 
-- [ ] 5.4 Connect AI processing to call pipeline
+- [ ] 6.4 Connect AI processing to call pipeline
+
   - Integrate AI response generation with transcribed user input
   - Add AI response storage to session conversation history
   - Implement error handling for AI service failures
@@ -229,13 +228,11 @@
   - **Test**: Send test queries via API, verify AI responses are stored in sessions
   - _Requirements: 3.1, 3.2_
 
-## Milestone 6: Text-to-Speech Output
-
-- [ ] 6
+- [ ] 7.  Milestone 7: Text-to-Speech Output
 
 **At the end of this milestone, I should be able to:** Call the system, ask a question, and hear the AI's response played back to me clearly over the phone.
 
-- [ ] 6.1 Set up Amazon Polly integration
+- [ ] 7.1 Set up Amazon Polly integration
 
   - Implement Polly API client with proper authentication
   - Configure voice selection optimized for telephony (Joanna/Matthew)
@@ -244,7 +241,7 @@
   - **Test**: Generate audio from test text, verify audio file quality
   - _Requirements: 4.1_
 
-- [ ] 6.2 Add SSML formatting for phone optimization
+- [ ] 7.2 Add SSML formatting for phone optimization
 
   - Implement SSML tags for speech rate and clarity
   - Add pause and emphasis formatting for phone calls
@@ -253,7 +250,7 @@
   - **Test**: Compare SSML vs plain text audio quality over phone
   - _Requirements: 4.2_
 
-- [ ] 6.3 Implement audio storage and delivery
+- [ ] 7.3 Implement audio storage and delivery
 
   - Create S3 storage for generated speech audio files
   - Set up proper access controls and temporary URLs
@@ -262,7 +259,8 @@
   - **Test**: Generate speech, verify S3 storage and URL accessibility
   - _Requirements: 4.1_
 
-- [ ] 6.4 Connect TTS to telephony playback
+- [ ] 7.4 Connect TTS to telephony playback
+
   - Integrate Polly audio generation with TwiML responses
   - Implement audio playback through telephony provider
   - Add playback completion detection and call flow continuation
@@ -270,9 +268,7 @@
   - **Test**: Call system, ask question, hear AI response played back clearly
   - _Requirements: 4.1, 4.4_
 
-## Milestone 7: Complete Conversation Flow
-
-- [ ] 7
+- [ ] 7. Milestone 7: Complete Conversation Flow
 
 **At the end of this milestone, I should be able to:** Have a natural back-and-forth conversation with the AI over the phone, ask follow-up questions, and have the call end gracefully when I'm done.
 

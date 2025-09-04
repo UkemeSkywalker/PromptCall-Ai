@@ -1,35 +1,153 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
-import { DTMFService, DTMFInput } from '../services/dtmf-service';
 
-const dtmfService = new DTMFService();
+console.log('=== LAMBDA INITIALIZATION START ===');
+console.log('Environment variables:', {
+  SESSION_TABLE_NAME: process.env.SESSION_TABLE_NAME,
+  AUDIO_BUCKET_NAME: process.env.AUDIO_BUCKET_NAME,
+  AWS_REGION: process.env.AWS_REGION,
+  NODE_ENV: process.env.NODE_ENV
+});
+
+console.log('Attempting to import services...');
+try {
+  console.log('Importing services from ../services');
+  const services = require('../services');
+  console.log('Available services:', Object.keys(services));
+  
+  var { 
+    DTMFService, 
+    TwiMLService, 
+    DynamoSessionManager,
+    S3Service,
+    TranscriptionProcessor
+  } = services;
+  
+  console.log('Services imported successfully');
+} catch (importError) {
+  console.error('CRITICAL: Failed to import services:', importError);
+  console.error('Import error stack:', importError instanceof Error ? importError.stack : 'No stack trace');
+  throw importError;
+}
+
+console.log('Initializing service instances...');
+try {
+  var dtmfService = new DTMFService();
+  console.log('DTMFService initialized');
+  
+  var twimlService = new TwiMLService();
+  console.log('TwiMLService initialized');
+  
+  var sessionManager = new DynamoSessionManager({
+    tableName: process.env.SESSION_TABLE_NAME || 'promptcall-sessions',
+    region: process.env.AWS_REGION || 'us-east-1'
+  });
+  console.log('DynamoSessionManager initialized');
+
+  var s3Service = new S3Service({
+    bucketName: process.env.AUDIO_BUCKET_NAME || 'promptcall-audio-bucket',
+    region: process.env.AWS_REGION || 'us-east-1'
+  });
+  console.log('S3Service initialized');
+
+  var transcriptionProcessor = new TranscriptionProcessor(s3Service, {
+    region: process.env.AWS_REGION || 'us-east-1',
+    confidenceThreshold: 0.7,
+    maxRetries: 2
+  });
+  console.log('TranscriptionProcessor initialized');
+  
+} catch (initError) {
+  console.error('CRITICAL: Failed to initialize services:', initError);
+  console.error('Initialization error stack:', initError instanceof Error ? initError.stack : 'No stack trace');
+  throw initError;
+}
+
+console.log('=== LAMBDA INITIALIZATION COMPLETE ===');
 
 export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
-  console.log('Received webhook event:', JSON.stringify(event, null, 2));
+  console.log('=== WEBHOOK REQUEST START ===');
+  console.log('Request ID:', event.requestContext?.requestId);
+  console.log('Path:', event.path);
+  console.log('Method:', event.httpMethod);
+  console.log('Headers:', JSON.stringify(event.headers, null, 2));
+  console.log('Body:', event.body);
+  console.log('=== WEBHOOK REQUEST DETAILS ===');
   
   const path = event.path;
   const httpMethod = event.httpMethod;
   
   try {
+    console.log('Processing webhook request...');
+    console.log('Request path:', path);
+    console.log('HTTP method:', httpMethod);
+    
     // Parse Twilio webhook parameters
     const body = event.body ? parseFormData(event.body) : {};
-    console.log('Parsed webhook body:', body);
+    console.log('Raw body:', event.body);
+    console.log('Parsed webhook body:', JSON.stringify(body, null, 2));
     
     // Route to appropriate handler based on path
+    console.log('Routing request...');
+    console.log('Path matching check:', {
+      path,
+      voiceMatch: path.includes('/webhook/voice'),
+      speechMatch: path.includes('/webhook/speech'),
+      dtmfMatch: path.includes('/webhook/dtmf'),
+      eventsMatch: path.includes('/webhook/events'),
+      methodMatch: httpMethod === 'POST'
+    });
+    
     if (path.includes('/webhook/voice') && httpMethod === 'POST') {
-      return handleVoiceWebhook(body);
+      console.log('✅ Routing to voice webhook handler');
+      return handleVoiceWebhook(body, event);
     } else if (path.includes('/webhook/speech') && httpMethod === 'POST') {
-      return handleSpeechWebhook(body);
+      console.log('✅ Routing to speech webhook handler - ENDPOINT REACHED');
+      return handleSpeechWebhook(body, event);
+    } else if (path.includes('/webhook/transcription-status') && (httpMethod === 'POST' || httpMethod === 'GET')) {
+      console.log('✅ Routing to transcription status handler');
+      return await handleTranscriptionStatus(body, event);
     } else if (path.includes('/webhook/dtmf') && httpMethod === 'POST') {
-      return handleDTMFWebhook(body);
+      console.log('✅ Routing to DTMF webhook handler');
+      return await handleDTMFWebhook(body, event);
     } else if (path.includes('/webhook/events') && httpMethod === 'POST') {
-      return handleEventsWebhook(body);
+      console.log('✅ Routing to events webhook handler');
+      return await handleEventsWebhook(body);
+    }
+    
+    console.log('❌ No matching route found');
+    console.log('Available routes should be: /webhook/voice, /webhook/speech, /webhook/dtmf, /webhook/events');
+    console.log('Actual path received:', path);
+    
+    // Add a test endpoint for debugging
+    if (path.includes('/test') || path === '/') {
+      console.log('Test endpoint hit - Lambda is working');
+      return {
+        statusCode: 200,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: 'Lambda is working',
+          timestamp: new Date().toISOString(),
+          path: path,
+          method: httpMethod
+        })
+      };
     }
     
     // Default response
     return createTwiMLResponse('Hello from PromptCall AI. Please try calling again.');
     
   } catch (error) {
-    console.error('Error processing webhook:', error);
+    console.error('=== CRITICAL ERROR IN WEBHOOK HANDLER ===');
+    console.error('Error type:', error instanceof Error ? error.constructor.name : typeof error);
+    console.error('Error message:', error instanceof Error ? error.message : String(error));
+    console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
+    console.error('Request context:', {
+      path: event.path,
+      method: event.httpMethod,
+      requestId: event.requestContext?.requestId
+    });
+    console.error('=== END CRITICAL ERROR ===');
+    
     return {
       statusCode: 500,
       headers: {
@@ -41,40 +159,46 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
 };
 
 function parseFormData(body: string): Record<string, string> {
-  const params = new URLSearchParams(body);
-  const result: Record<string, string> = {};
-  
-  for (const [key, value] of params.entries()) {
-    result[key] = value;
-  }
-  
-  return result;
+  return TwiMLService.parseWebhookParams(body);
 }
 
-function handleVoiceWebhook(body: Record<string, string>): APIGatewayProxyResult {
-  const callSid = body.CallSid;
-  const from = body.From;
-  const to = body.To;
+function getBaseUrl(event: APIGatewayProxyEvent): string {
+  return `https://${event.headers.Host}${event.requestContext.stage ? `/${event.requestContext.stage}` : ''}`;
+}
+
+async function handleVoiceWebhook(body: Record<string, string>, event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+  const { callSid, from, to, callStatus } = TwiMLService.extractTwilioParams(body);
   
-  console.log(`Incoming call from ${from} to ${to}, CallSid: ${callSid}`);
+  console.log(`Incoming call from ${from} to ${to}, CallSid: ${callSid}, Status: ${callStatus}`);
+  
+  try {
+    // Create new session when call starts
+    const session = await sessionManager.createSession(callSid, from);
+    
+    // Add system message to track call start
+    await sessionManager.addSystemMessage(session.sessionId, `Call started from ${from} to ${to}, Status: ${callStatus}`);
+    
+    console.log(`Created session for CallSid: ${callSid}, SessionId: ${session.sessionId}`);
+  } catch (error) {
+    console.error('Error creating session:', error);
+    // Continue with call even if session creation fails
+  }
   
   // Create TwiML response with welcome message and recording
   const welcomeMessage = dtmfService.generateWelcomeWithInstructions();
   
-  const twiml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Say voice="alice">${welcomeMessage}</Say>
-  <Record 
-    action="/webhook/speech" 
-    method="POST" 
-    maxLength="30" 
-    timeout="10"
-    playBeep="true"
-    recordingStatusCallback="/webhook/events"
-    recordingStatusCallbackMethod="POST"
-  />
-  <Say voice="alice">I didn't hear anything. Please try calling again.</Say>
-</Response>`;
+  // Get the base URL from the event
+  const baseUrl = getBaseUrl(event);
+  
+  const twiml = twimlService.createWelcomeWithRecording(welcomeMessage, {
+    action: `${baseUrl}/webhook/speech`,
+    method: 'POST',
+    maxLength: 30,
+    timeout: 10,
+    playBeep: true,
+    recordingStatusCallback: `${baseUrl}/webhook/events`,
+    recordingStatusCallbackMethod: 'POST'
+  });
 
   return {
     statusCode: 200,
@@ -85,45 +209,295 @@ function handleVoiceWebhook(body: Record<string, string>): APIGatewayProxyResult
   };
 }
 
-function handleSpeechWebhook(body: Record<string, string>): APIGatewayProxyResult {
-  const recordingUrl = body.RecordingUrl;
-  const callSid = body.CallSid;
+async function handleSpeechWebhook(body: Record<string, string>, event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+  console.log('=== SPEECH WEBHOOK HANDLER START ===');
+  console.log('Speech endpoint reached successfully - no 403 error here');
   
-  console.log(`Speech recording received for CallSid: ${callSid}, URL: ${recordingUrl}`);
+  const { recordingUrl, callSid, recordingDuration } = TwiMLService.extractTwilioParams(body);
   
-  // After speech recording, immediately wait for DTMF input without any prompt
-  // User should press "1" to submit or "0" to end call
-  const gatherTwiML = dtmfService.generateGatherTwiML({
-    action: '/webhook/dtmf',
-    timeout: 30, // Give user time to press a key
-    numDigits: 1,
-    finishOnKey: '' // Don't require finish key, just single digit
+  console.log('Speech webhook parameters:', {
+    callSid,
+    recordingUrl,
+    recordingDuration,
+    allParams: body
   });
   
-  const twiml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  ${gatherTwiML}
-  <Say voice="alice">I didn't receive any keypad input. Please press 1 to submit your question or 0 to end the call.</Say>
-</Response>`;
+  console.log(`Speech recording received for CallSid: ${callSid}, URL: ${recordingUrl}, Duration: ${recordingDuration}s`);
+  
+  try {
+    console.log('Attempting to find session by CallSid...');
+    // Find session by CallSid
+    const session = await sessionManager.getSessionByCallSid(callSid);
+    console.log('Session lookup result:', session ? 'Found' : 'Not found');
+    
+    if (!session) {
+      console.warn(`Session not found for CallSid: ${callSid}`);
+      const twiml = twimlService.createSayResponse('Sorry, there was an error. Please try again.');
+      return {
+        statusCode: 200,
+        headers: { 'Content-Type': 'application/xml' },
+        body: twiml
+      };
+    }
 
-  return {
-    statusCode: 200,
-    headers: {
-      'Content-Type': 'application/xml'
-    },
-    body: twiml
-  };
+    console.log('Validating audio quality...');
+    // Quick audio validation
+    const audioValidation = transcriptionProcessor.validateAudioQuality({
+      url: recordingUrl,
+      duration: recordingDuration ? parseFloat(recordingDuration) : undefined
+    });
+
+    if (!audioValidation.isValid) {
+      console.warn(`Audio quality issues for CallSid ${callSid}:`, audioValidation.issues);
+      await sessionManager.addSystemMessage(session.sessionId, `Audio quality issues: ${audioValidation.issues.join(', ')}`);
+      
+      const baseUrl = getBaseUrl(event);
+      const recordWithDTMF = dtmfService.generateRecordWithDTMFTwiML({
+        speechAction: `${baseUrl}/webhook/speech`,
+        dtmfAction: `${baseUrl}/webhook/dtmf`,
+        maxLength: 30,
+        timeout: 10,
+        prompt: 'I had trouble with your audio. Please speak clearly.'
+      });
+
+      const twiml = twimlService.createComplexResponse([
+        twimlService.createSayVerb('I had trouble with your audio. Please speak clearly.'),
+        recordWithDTMF
+      ]);
+      
+      return {
+        statusCode: 200,
+        headers: { 'Content-Type': 'application/xml' },
+        body: twiml
+      };
+    }
+
+    // CRITICAL FIX: Respond immediately to avoid Twilio timeout
+    console.log('Starting async transcription processing...');
+    
+    // Add initial recording info to session
+    await sessionManager.addUserMessage(session.sessionId, 'Speech recorded - processing transcription...', recordingUrl);
+    
+    // Start transcription processing asynchronously (don't await)
+    processTranscriptionAsync(recordingUrl, session.sessionId, callSid).catch(error => {
+      console.error('Async transcription processing failed:', error);
+    });
+
+    // Immediately respond to Twilio with processing message
+    // Store the session info in the session itself for later retrieval
+    await sessionManager.addSystemMessage(session.sessionId, `Waiting for transcription completion - CallSid: ${callSid}`);
+    
+    const twiml = twimlService.createComplexResponse([
+      twimlService.createSayVerb('I heard you. Processing your request now, please wait a moment.'),
+      twimlService.createPauseVerb(3),
+      twimlService.createRedirectVerb(`${getBaseUrl(event)}/webhook/transcription-status`, 'POST')
+    ]);
+
+    console.log('Returning immediate response to avoid timeout');
+    return {
+      statusCode: 200,
+      headers: { 'Content-Type': 'application/xml' },
+      body: twiml
+    };
+
+  } catch (error) {
+    console.error('Error in speech webhook handler:', error);
+    
+    const twiml = twimlService.createSayResponse('Sorry, there was an error processing your speech. Please try calling again.');
+    return {
+      statusCode: 500,
+      headers: { 'Content-Type': 'application/xml' },
+      body: twiml
+    };
+  }
 }
 
-function handleDTMFWebhook(body: Record<string, string>): APIGatewayProxyResult {
-  const digits = body.Digits;
-  const callSid = body.CallSid;
-  const from = body.From;
-  const to = body.To;
+// New async function to handle transcription processing
+async function processTranscriptionAsync(recordingUrl: string, sessionId: string, callSid: string): Promise<void> {
+  try {
+    console.log(`Starting async transcription for session ${sessionId}`);
+    
+    const transcriptionResult = await transcriptionProcessor.processAudioFromUrl(
+      recordingUrl, 
+      sessionId, 
+      callSid
+    );
+
+    console.log(`Transcription completed: ${transcriptionProcessor.formatResultForLogging(transcriptionResult)}`);
+
+    // Update session with transcription result
+    if (transcriptionProcessor.isTranscriptionAcceptable(transcriptionResult)) {
+      console.log('Transcription is acceptable, updating session...');
+      await sessionManager.addUserMessage(
+        sessionId, 
+        transcriptionResult.text, 
+        recordingUrl,
+        transcriptionResult.confidence
+      );
+      
+      // Mark session as ready for next step
+      await sessionManager.addSystemMessage(sessionId, 'Transcription completed successfully - ready for DTMF input');
+      
+      console.log(`Successfully transcribed for session ${sessionId}: "${transcriptionResult.text}"`);
+    } else {
+      console.log('Transcription quality is poor, marking for retry...');
+      const issueMessage = transcriptionProcessor.getTranscriptionIssueMessage(transcriptionResult);
+      
+      await sessionManager.addSystemMessage(
+        sessionId, 
+        `Transcription issue: ${issueMessage} (confidence: ${transcriptionResult.confidence})`
+      );
+      
+      // Mark session as needing retry
+      await sessionManager.addSystemMessage(sessionId, 'Transcription quality poor - needs retry');
+    }
+
+  } catch (error) {
+    console.error('Async transcription processing failed:', error);
+    
+    await sessionManager.addSystemMessage(
+      sessionId, 
+      `Transcription failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+    );
+  }
+}
+
+// New handler for checking transcription status
+async function handleTranscriptionStatus(body: Record<string, string>, event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+  // Get CallSid from the Twilio webhook body (standard Twilio parameter)
+  const { callSid } = TwiMLService.extractTwilioParams(body);
+  
+  console.log(`Checking transcription status for CallSid: ${callSid}`);
+  
+  if (!callSid) {
+    const twiml = twimlService.createSayResponse('Sorry, there was an error. Please try again.');
+    return {
+      statusCode: 200,
+      headers: { 'Content-Type': 'application/xml' },
+      body: twiml
+    };
+  }
+
+  try {
+    // Find session by CallSid
+    const session = await sessionManager.getSessionByCallSid(callSid);
+    if (!session) {
+      const twiml = twimlService.createSayResponse('Sorry, there was an error. Please try again.');
+      return {
+        statusCode: 200,
+        headers: { 'Content-Type': 'application/xml' },
+        body: twiml
+      };
+    }
+
+    console.log(`Found session: ${session.sessionId}, checking transcription status...`);
+
+    // Check the latest system messages to determine transcription status
+    const recentMessages = session.conversation?.slice(-5) || [];
+    const hasCompletedTranscription = recentMessages.some((msg: any) => 
+      msg.role === 'system' && msg.content.includes('Transcription completed successfully')
+    );
+    const needsRetry = recentMessages.some((msg: any) => 
+      msg.role === 'system' && msg.content.includes('needs retry')
+    );
+    const hasFailed = recentMessages.some((msg: any) => 
+      msg.role === 'system' && msg.content.includes('Transcription failed')
+    );
+
+    console.log(`Transcription status check: completed=${hasCompletedTranscription}, needsRetry=${needsRetry}, failed=${hasFailed}`);
+
+    const baseUrl = getBaseUrl(event);
+
+    if (hasCompletedTranscription) {
+      // Transcription successful - proceed to DTMF gathering
+      console.log('Transcription completed successfully, proceeding to DTMF');
+      
+      const twiml = twimlService.createComplexResponse([
+        twimlService.createSayVerb('Great! I understood what you said. Press 1 to submit your question, or speak again to revise it.'),
+        twimlService.createGatherVerb('', {
+          action: `${baseUrl}/webhook/dtmf`,
+          timeout: 30,
+          numDigits: 1,
+          finishOnKey: ''
+        })
+      ]);
+
+      return {
+        statusCode: 200,
+        headers: { 'Content-Type': 'application/xml' },
+        body: twiml
+      };
+
+    } else if (needsRetry || hasFailed) {
+      // Transcription failed or needs retry
+      console.log('Transcription needs retry or failed');
+      
+      const recordWithDTMF = dtmfService.generateRecordWithDTMFTwiML({
+        speechAction: `${baseUrl}/webhook/speech`,
+        dtmfAction: `${baseUrl}/webhook/dtmf`,
+        maxLength: 30,
+        timeout: 10,
+        prompt: "I didn't catch that clearly. Please speak your question again more clearly."
+      });
+
+      const twiml = twimlService.createComplexResponse([
+        twimlService.createSayVerb("I didn't catch that clearly. Please speak your question again more clearly."),
+        recordWithDTMF
+      ]);
+
+      return {
+        statusCode: 200,
+        headers: { 'Content-Type': 'application/xml' },
+        body: twiml
+      };
+
+    } else {
+      // Still processing - wait a bit more
+      console.log('Transcription still processing, waiting...');
+      
+      const twiml = twimlService.createComplexResponse([
+        twimlService.createSayVerb('Still processing, please wait a moment longer.'),
+        twimlService.createPauseVerb(2),
+        twimlService.createRedirectVerb(`${baseUrl}/webhook/transcription-status`, 'POST')
+      ]);
+
+      return {
+        statusCode: 200,
+        headers: { 'Content-Type': 'application/xml' },
+        body: twiml
+      };
+    }
+
+  } catch (error) {
+    console.error('Error checking transcription status:', error);
+    
+    const twiml = twimlService.createSayResponse('Sorry, there was an error. Please try again.');
+    return {
+      statusCode: 500,
+      headers: { 'Content-Type': 'application/xml' },
+      body: twiml
+    };
+  }
+}
+
+async function handleDTMFWebhook(body: Record<string, string>, event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+  const { digits, callSid, from, to } = TwiMLService.extractTwilioParams(body);
   
   console.log(`DTMF input received: ${digits} for CallSid: ${callSid}`);
   
-  const dtmfInput: DTMFInput = {
+  try {
+    // Find session by CallSid and track DTMF input
+    const session = await sessionManager.getSessionByCallSid(callSid);
+    if (session) {
+      await sessionManager.addSystemMessage(session.sessionId, `DTMF input received: ${digits}`);
+    } else {
+      console.warn(`Session not found for CallSid: ${callSid}`);
+    }
+  } catch (error) {
+    console.error('Error tracking DTMF input in session:', error);
+  }
+  
+  const dtmfInput = {
     digits,
     callSid,
     from,
@@ -132,63 +506,78 @@ function handleDTMFWebhook(body: Record<string, string>): APIGatewayProxyResult 
   
   const response = dtmfService.processDTMFInput(dtmfInput);
   
-  let twiml = `<?xml version="1.0" encoding="UTF-8"?><Response>`;
+  const verbs: string[] = [];
   
   if (response.message) {
-    twiml += `<Say voice="alice">${response.message}</Say>`;
+    verbs.push(twimlService.createSayVerb(response.message));
   }
   
   if (response.action === 'submit') {
     // User pressed "1" - process their spoken prompt
-    twiml += `<Say voice="alice">Processing your request now. Please wait.</Say>`;
+    verbs.push(twimlService.createSayVerb('Processing your request now. Please wait.'));
     // In later tasks, this will trigger AI processing
-    twiml += `<Say voice="alice">This is a placeholder response. Your AI processing will be implemented in later tasks.</Say>`;
-    twiml += `<Pause length="1"/>`;
-    twiml += `<Say voice="alice">Is there anything else I can help you with?</Say>`;
+    verbs.push(twimlService.createSayVerb('This is a placeholder response. Your AI processing will be implemented in later tasks.'));
+    verbs.push(twimlService.createPauseVerb(1));
+    verbs.push(twimlService.createSayVerb('Is there anything else I can help you with?'));
     
     // Continue with another recording session
+    const baseUrl = getBaseUrl(event);
     const recordWithDTMF = dtmfService.generateRecordWithDTMFTwiML({
-      speechAction: '/webhook/speech',
-      dtmfAction: '/webhook/dtmf',
+      speechAction: `${baseUrl}/webhook/speech`,
+      dtmfAction: `${baseUrl}/webhook/dtmf`,
       maxLength: 30,
       timeout: 10,
       prompt: dtmfService.generateControlsReminder()
     });
-    twiml += recordWithDTMF;
+    verbs.push(recordWithDTMF);
     
   } else if (response.action === 'end_call') {
     // User pressed "0" - end the call gracefully
-    twiml += `<Hangup/>`;
+    try {
+      // Find session by CallSid and update status to completed
+      const session = await sessionManager.getSessionByCallSid(callSid);
+      if (session) {
+        await sessionManager.updateSessionStatus(session.sessionId, 'completed', Date.now());
+        await sessionManager.addSystemMessage(session.sessionId, 'Call ended by user request (pressed 0)');
+      } else {
+        console.warn(`Session not found for CallSid: ${callSid}`);
+      }
+    } catch (error) {
+      console.error('Error updating session on call end:', error);
+    }
+    verbs.push(twimlService.createHangupVerb());
     
   } else if (response.action === 'help') {
     // User pressed "*" - provide help
-    twiml += `<Pause length="1"/>`;
+    verbs.push(twimlService.createPauseVerb(1));
     
     // Continue with recording after help
+    const baseUrl = getBaseUrl(event);
     const recordWithDTMF = dtmfService.generateRecordWithDTMFTwiML({
-      speechAction: '/webhook/speech',
-      dtmfAction: '/webhook/dtmf',
+      speechAction: `${baseUrl}/webhook/speech`,
+      dtmfAction: `${baseUrl}/webhook/dtmf`,
       maxLength: 30,
       timeout: 10,
       prompt: 'Please speak your question after the beep.'
     });
-    twiml += recordWithDTMF;
+    verbs.push(recordWithDTMF);
     
   } else {
     // Invalid input - provide guidance and continue
-    twiml += `<Pause length="1"/>`;
+    verbs.push(twimlService.createPauseVerb(1));
     
+    const baseUrl = getBaseUrl(event);
     const recordWithDTMF = dtmfService.generateRecordWithDTMFTwiML({
-      speechAction: '/webhook/speech',
-      dtmfAction: '/webhook/dtmf',
+      speechAction: `${baseUrl}/webhook/speech`,
+      dtmfAction: `${baseUrl}/webhook/dtmf`,
       maxLength: 30,
       timeout: 10,
       prompt: 'Please speak your question after the beep.'
     });
-    twiml += recordWithDTMF;
+    verbs.push(recordWithDTMF);
   }
   
-  twiml += `</Response>`;
+  const twiml = twimlService.createComplexResponse(verbs);
   
   return {
     statusCode: 200,
@@ -199,30 +588,79 @@ function handleDTMFWebhook(body: Record<string, string>): APIGatewayProxyResult 
   };
 }
 
-function handleEventsWebhook(body: Record<string, string>): APIGatewayProxyResult {
-  const recordingStatus = body.RecordingStatus;
-  const callSid = body.CallSid;
+async function handleEventsWebhook(body: Record<string, string>): Promise<APIGatewayProxyResult> {
+  const { recordingStatus, callSid, callStatus, callDuration } = TwiMLService.extractTwilioParams(body);
   
-  console.log(`Recording event for CallSid: ${callSid}, Status: ${recordingStatus}`);
+  console.log(`Event received for CallSid: ${callSid}, Recording Status: ${recordingStatus}, Call Status: ${callStatus}`);
   
-  // Log the event for monitoring
-  // In later tasks, this will update session status in DynamoDB
+  try {
+    // Find session by CallSid
+    const session = await sessionManager.getSessionByCallSid(callSid);
+    if (!session) {
+      console.warn(`Session not found for CallSid: ${callSid}`);
+      // Continue processing even if session not found
+    } else {
+      // Handle different types of events
+      if (recordingStatus) {
+        // Recording status events
+        await sessionManager.addSystemMessage(session.sessionId, `Recording status: ${recordingStatus}`);
+        
+        if (recordingStatus === 'completed') {
+          console.log(`Recording completed for CallSid: ${callSid}`);
+        } else if (recordingStatus === 'failed') {
+          console.log(`Recording failed for CallSid: ${callSid}`);
+          await sessionManager.addSystemMessage(session.sessionId, 'Recording failed - audio may not be available');
+        }
+      }
+      
+      if (callStatus) {
+        // Call status events
+        await sessionManager.addSystemMessage(session.sessionId, `Call status: ${callStatus}`);
+        
+        if (callStatus === 'completed') {
+          // Call ended - update session
+          const duration = callDuration ? parseInt(callDuration) : 0;
+          await sessionManager.updateSessionStatus(session.sessionId, 'completed', Date.now());
+          if (duration > 0) {
+            await sessionManager.updateCallDuration(session.sessionId, duration);
+          }
+          console.log(`Call completed for CallSid: ${callSid}, Duration: ${duration}s`);
+          
+        } else if (callStatus === 'failed' || callStatus === 'busy' || callStatus === 'no-answer') {
+          // Call failed - update session with error
+          await sessionManager.updateSessionStatus(session.sessionId, 'failed', Date.now(), {
+            code: callStatus,
+            message: `Call ${callStatus}`
+          });
+          console.log(`Call failed for CallSid: ${callSid}, Status: ${callStatus}`);
+        }
+      }
+    }
+    
+  } catch (error) {
+    console.error('Error handling event webhook:', error);
+    // Continue processing even if session update fails
+  }
+  
+  const twiml = twimlService.createComplexResponse([]);
   
   return {
     statusCode: 200,
     headers: {
       'Content-Type': 'application/xml'
     },
-    body: '<?xml version="1.0" encoding="UTF-8"?><Response></Response>'
+    body: twiml
   };
 }
 
 function createTwiMLResponse(message: string): APIGatewayProxyResult {
+  const twiml = twimlService.createSayResponse(message);
+  
   return {
     statusCode: 200,
     headers: {
       'Content-Type': 'application/xml'
     },
-    body: `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="alice">${message}</Say></Response>`
+    body: twiml
   };
 }

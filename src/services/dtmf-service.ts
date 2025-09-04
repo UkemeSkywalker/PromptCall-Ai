@@ -81,6 +81,8 @@ export class DTMFService {
 
   /**
    * Generate TwiML for recording with DTMF controls
+   * Note: Record and Gather cannot be nested, so we use Record with timeout
+   * and then follow with Gather for DTMF input
    */
   generateRecordWithDTMFTwiML(options: {
     speechAction: string;
@@ -97,12 +99,15 @@ export class DTMFService {
       twiml += `<Say voice="alice">${prompt}</Say>`;
     }
     
-    // Add DTMF gathering that wraps the recording
-    twiml += `<Gather action="${dtmfAction}" method="POST" timeout="${timeout}" numDigits="1" finishOnKey="#">`;
+    // First, record the user's speech
     twiml += `<Record action="${speechAction}" method="POST" maxLength="${maxLength}" timeout="${timeout}" playBeep="true" />`;
+    
+    // Then, gather DTMF input with instructions
+    twiml += `<Gather action="${dtmfAction}" method="POST" timeout="30" numDigits="1" finishOnKey="#">`;
+    twiml += '<Say voice="alice">Press 1 to submit your prompt, or press 0 to end the call.</Say>';
     twiml += '</Gather>';
     
-    // Fallback if no DTMF or speech input
+    // Fallback if no DTMF input
     twiml += '<Say voice="alice">I didn\'t receive any input. Please try again.</Say>';
     
     return twiml;

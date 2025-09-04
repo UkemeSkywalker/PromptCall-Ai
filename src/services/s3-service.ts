@@ -48,6 +48,32 @@ export class S3Service {
   }
 
   /**
+   * Upload audio file to S3 with metadata
+   */
+  async uploadAudioWithMetadata(
+    audioBuffer: Buffer, 
+    key: string, 
+    metadata: Record<string, string>,
+    contentType: string = 'audio/wav'
+  ): Promise<S3UploadResult> {
+    const command = new PutObjectCommand({
+      Bucket: this.bucketName,
+      Key: key,
+      Body: audioBuffer,
+      ContentType: contentType,
+      Metadata: metadata
+    });
+
+    await this.s3Client.send(command);
+
+    return {
+      key,
+      url: `s3://${this.bucketName}/${key}`,
+      bucket: this.bucketName
+    };
+  }
+
+  /**
    * Get signed URL for audio file access
    */
   async getSignedUrl(key: string, expiresIn: number = 3600): Promise<string> {
@@ -75,11 +101,50 @@ export class S3Service {
    * Upload audio file from URL (e.g., Twilio recording URL)
    */
   async uploadAudioFromUrl(url: string, sessionId: string, callSid?: string): Promise<S3UploadResult> {
-    // In a real implementation, we would fetch the audio from the URL
-    // For now, we'll create a placeholder
-    const placeholderBuffer = Buffer.from('placeholder audio data');
-    const key = this.generateAudioKey(sessionId, Date.now(), 'input');
-    return await this.uploadAudio(placeholderBuffer, key, 'audio/wav');
+    try {
+      // Prepare authentication for Twilio URLs
+      const headers: Record<string, string> = {};
+      
+      // Add Twilio authentication if this is a Twilio URL
+      if (url.includes('api.twilio.com')) {
+        const accountSid = process.env.TWILIO_ACCOUNT_SID;
+        const authToken = process.env.TWILIO_AUTH_TOKEN;
+        
+        if (accountSid && authToken) {
+          const credentials = Buffer.from(`${accountSid}:${authToken}`).toString('base64');
+          headers['Authorization'] = `Basic ${credentials}`;
+          console.log('Added Twilio authentication for recording URL');
+        } else {
+          console.warn('Twilio credentials not found in environment variables');
+        }
+      }
+      
+      // Fetch audio data from Twilio URL with authentication
+      const response = await fetch(url, { headers });
+      if (!response.ok) {
+        throw new Error(`Failed to fetch audio from URL: ${response.status} ${response.statusText}`);
+      }
+      
+      const audioBuffer = Buffer.from(await response.arrayBuffer());
+      const timestamp = Date.now();
+      const key = this.generateAudioKey(sessionId, timestamp, 'input');
+      
+      // Add metadata to the upload
+      const result = await this.uploadAudioWithMetadata(audioBuffer, key, {
+        sessionId,
+        callSid: callSid || 'unknown',
+        sourceUrl: url,
+        uploadTimestamp: timestamp.toString(),
+        audioType: 'user-input'
+      });
+      
+      console.log(`Successfully uploaded audio from Twilio URL to S3: ${key}`);
+      return result;
+      
+    } catch (error) {
+      console.error('Error uploading audio from URL:', error);
+      throw new Error(`Failed to upload audio from URL: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 
   /**
@@ -102,5 +167,19 @@ export class S3Service {
    */
   generateAudioKey(sessionId: string, timestamp: number, type: 'input' | 'output'): string {
     return `audio/${sessionId}/${type}-${timestamp}.wav`;
+  }
+
+  /**
+   * Get S3 URI for Transcribe service
+   */
+  getS3Uri(key: string): string {
+    return `s3://${this.bucketName}/${key}`;
+  }
+
+  /**
+   * Get public HTTPS URL for audio file
+   */
+  getPublicUrl(key: string): string {
+    return `https://${this.bucketName}.s3.amazonaws.com/${key}`;
   }
 }

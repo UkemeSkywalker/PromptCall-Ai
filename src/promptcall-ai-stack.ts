@@ -22,6 +22,16 @@ export class PromptCallAiStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY, // For development
     });
 
+    // Add GSI for querying by CallSid
+    sessionTable.addGlobalSecondaryIndex({
+      indexName: 'CallSidIndex',
+      partitionKey: {
+        name: 'callSid',
+        type: dynamodb.AttributeType.STRING
+      },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
     // S3 bucket for audio file storage with lifecycle policies
     const audioBucket = new s3.Bucket(this, 'AudioBucket', {
       bucketName: `promptcall-audio-${this.account}-${this.region}`,
@@ -121,12 +131,14 @@ export class PromptCallAiStack extends cdk.Stack {
     // Lambda function for handling Twilio webhooks
     const webhookHandler = new lambda.Function(this, 'WebhookHandler', {
       runtime: lambda.Runtime.NODEJS_18_X,
-      handler: 'webhook-handler.handler',
-      code: lambda.Code.fromAsset('dist/lambda'),
+      handler: 'lambda/webhook-handler.handler',
+      code: lambda.Code.fromAsset('lambda-bundle'),
       role: lambdaRole,
       environment: {
         SESSION_TABLE_NAME: sessionTable.tableName,
         AUDIO_BUCKET_NAME: audioBucket.bucketName,
+        TWILIO_ACCOUNT_SID: process.env.TWILIO_ACCOUNT_SID || '',
+        TWILIO_AUTH_TOKEN: process.env.TWILIO_AUTH_TOKEN || '',
       },
       timeout: cdk.Duration.seconds(30),
     });
@@ -160,6 +172,11 @@ export class PromptCallAiStack extends cdk.Stack {
     // Events webhook endpoint
     const eventsResource = webhookResource.addResource('events');
     eventsResource.addMethod('POST', new apigateway.LambdaIntegration(webhookHandler));
+
+    // Transcription status webhook endpoint
+    const transcriptionStatusResource = webhookResource.addResource('transcription-status');
+    transcriptionStatusResource.addMethod('POST', new apigateway.LambdaIntegration(webhookHandler));
+    transcriptionStatusResource.addMethod('GET', new apigateway.LambdaIntegration(webhookHandler));
 
     // Output important values
     new cdk.CfnOutput(this, 'ApiGatewayUrl', {
