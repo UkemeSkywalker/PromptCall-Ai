@@ -99,16 +99,19 @@ export class DTMFService {
       twiml += `<Say voice="alice">${prompt}</Say>`;
     }
     
-    // First, record the user's speech
-    twiml += `<Record action="${speechAction}" method="POST" maxLength="${maxLength}" timeout="${timeout}" playBeep="true" />`;
+    // Record with finishOnKey="1" - pressing 1 ends recording and submits to speechAction
+    // Note: Users can't press 0 to end call during recording with this approach
+    // They need to press 1 to submit, then press 0 when prompted for next question
+    twiml += `<Record action="${speechAction}" method="POST" maxLength="${maxLength}" timeout="${timeout}" playBeep="true" finishOnKey="1" />`;
     
-    // Then, gather DTMF input with instructions
-    twiml += `<Gather action="${dtmfAction}" method="POST" timeout="30" numDigits="1" finishOnKey="#">`;
-    twiml += '<Say voice="alice">Press 1 to submit your prompt, or press 0 to end the call.</Say>';
+    // Fallback if recording times out without pressing 1
+    twiml += `<Gather action="${dtmfAction}" method="POST" timeout="10" numDigits="1">`;
+    twiml += '<Say voice="alice">Press 1 to submit what you just said, or 0 to end the call.</Say>';
     twiml += '</Gather>';
     
-    // Fallback if no DTMF input
-    twiml += '<Say voice="alice">I didn\'t receive any input. Please try again.</Say>';
+    // Final fallback - end call
+    twiml += '<Say voice="alice">Goodbye!</Say>';
+    twiml += '<Hangup />';
     
     return twiml;
   }
@@ -117,7 +120,7 @@ export class DTMFService {
    * Generate welcome message with DTMF instructions
    */
   generateWelcomeWithInstructions(): string {
-    return `Welcome to PromptCall AI. Please speak your question after the beep. 
+    return `Welcome to Prompt Call. Please speak your question after the beep. 
             When you finish speaking, press 1 to submit your question for AI processing, 
             or press 0 to end the call. You can press star for help at any time.`;
   }
