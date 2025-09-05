@@ -317,6 +317,33 @@ export class DynamoSessionManager {
   }
 
   /**
+   * Gets all sessions (for monitoring/debugging)
+   */
+  async getAllSessions(limit: number = 100): Promise<CallSession[]> {
+    const command = new ScanCommand({
+      TableName: this.tableName,
+      Limit: limit,
+    });
+
+    try {
+      const result = await this.client.send(command);
+
+      if (!result.Items) {
+        return [];
+      }
+
+      const sessions = result.Items
+        .map(item => unmarshall(item) as CallSession)
+        .filter(session => validateCallSession(session));
+
+      return sessions;
+    } catch (error) {
+      console.error('Error getting all sessions:', error);
+      throw new Error(`Failed to get all sessions: ${error}`);
+    }
+  }
+
+  /**
    * Lists active sessions (for monitoring/debugging)
    */
   async listActiveSessions(limit: number = 50): Promise<CallSession[]> {

@@ -27,3 +27,9 @@ export type { TranscribeResult, TranscribeConfig } from './transcribe-service';
 
 export { TranscriptionProcessor } from './transcription-processor';
 export type { TranscriptionResult, TranscriptionConfig } from './transcription-processor';
+
+export { BedrockService, AVAILABLE_MODELS } from './bedrock-service';
+export type { BedrockConfig, AIResponse } from './bedrock-service';
+
+export { AIConversationService, VoicePromptTemplates } from './ai-conversation-service';
+export type { AIConversationConfig } from './ai-conversation-service';
